@@ -1,0 +1,2 @@
+pip install requests beautifulsoup4 selenium webdriver-manager
+
