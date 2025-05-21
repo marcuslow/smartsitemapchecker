@@ -129,47 +129,36 @@ def check_url_status(urls: List[str]) -> List[Tuple[str, str]]:
                 final_url = response.url
                 
                 if status_code == 404:
-                    results.append((url, "- ERROR 404"))
+                    results.append((url, "- ERROR 404 (HTTP status)"))
                     continue
                 
                 # Use Selenium to render the page
                 driver.get(url)
                 initial_url = driver.current_url
                 
-                # Wait for page to stabilize or 404 content
+                # Wait for any of: title, h1, or body
                 try:
                     WebDriverWait(driver, 10).until(
                         EC.any_of(
-                            EC.presence_of_element_located((By.CSS_SELECTOR, "h1, div:not(:empty)")),
-                            EC.title_contains("404"),
-                            EC.title_contains("not found"),
-                            EC.url_contains("/404")
+                            EC.presence_of_element_located((By.TAG_NAME, "title")),
+                            EC.presence_of_element_located((By.TAG_NAME, "h1")),
+                            EC.presence_of_element_located((By.TAG_NAME, "body")),
                         )
                     )
                     # Ensure page is fully loaded
                     WebDriverWait(driver, 5).until(
                         lambda d: d.execute_script("return document.readyState") == "complete"
                     )
-                    # Check for URL changes (JS-driven redirects)
-                    current_url = driver.current_url
-                    if current_url != initial_url and "/404" in current_url.lower():
-                        results.append((url, "- ERROR 404"))
-                        continue
-                except:
+                except Exception:
                     # Fallback: wait 7 seconds for JS-driven reload
                     time.sleep(7)
                 
                 rendered_content = driver.page_source
-                content_size = len(rendered_content)
-                
-                # Check for minimal content
-                if content_size < 5000 or rendered_content.strip().lower() in ["loading...", ""]:
-                    results.append((url, "- ERROR 404"))
-                    continue
-                
                 soup = BeautifulSoup(rendered_content, 'html.parser')
                 title = soup.title.string.lower() if soup.title and soup.title.string else ""
                 content_lower = rendered_content.lower()
+                h1_elements = [h1.get_text().lower() for h1 in soup.find_all('h1') if h1.get_text()]
+                body_text = soup.body.get_text().lower() if soup.body else ""
                 
                 soft_404_indicators = [
                     "404 page not found",
@@ -178,19 +167,20 @@ def check_url_status(urls: List[str]) -> List[Tuple[str, str]]:
                     "error 404",
                     "not found"
                 ]
-                # Check all h1 and div elements
-                h1_elements = [h1.string.lower() for h1 in soup.find_all('h1') if h1.string]
-                div_elements = [div.string.lower() for div in soup.find_all('div') if div.string]
                 
-                # Check for generic or suspicious titles
-                suspicious_titles = ["loading...", "menu", "", "home"]
-                if (title in suspicious_titles or
+                # Only flag as 404 if clear indicators are present
+                found_404 = False
+                if (
                     "404" in title or
-                    "not found" in title or
-                    any(indicator in content_lower for indicator in soft_404_indicators) or
+                    any(indicator in title for indicator in soft_404_indicators) or
                     any("404" in h1 or "not found" in h1 for h1 in h1_elements) or
-                    any(indicator in div for div in div_elements for indicator in soft_404_indicators)):
-                    results.append((url, "- ERROR 404"))
+                    any(indicator in h1 for h1 in h1_elements for indicator in soft_404_indicators) or
+                    any(indicator in body_text for indicator in soft_404_indicators)
+                ):
+                    found_404 = True
+                
+                if found_404:
+                    results.append((url, "- ERROR 404 (content)"))
                 else:
                     results.append((url, "- OK"))
                 
@@ -201,7 +191,7 @@ def check_url_status(urls: List[str]) -> List[Tuple[str, str]]:
                 
             except (requests.RequestException, Exception) as e:
                 logger.error(f"Error checking {url}: {str(e)}")
-                results.append((url, "- ERROR 404"))
+                results.append((url, "- ERROR 404 (exception)"))
     
     finally:
         driver.quit()
