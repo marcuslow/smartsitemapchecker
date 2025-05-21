@@ -68,9 +68,27 @@ def get_sitemap_urls(sitemap_url: str) -> List[str]:
         if response.status_code != 200:
             logger.error(f"Failed to fetch main sitemap: HTTP {response.status_code}")
             return []
+        
+        # Parse the XML content
         tree = ET.fromstring(response.content)
-        namespace = {'ns': 'http://sitemaps.org/schemas/sitemap/0.9'}
-        return [loc.text for loc in tree.findall('.//ns:sitemap/ns:loc', namespace)]
+        
+        # Define the namespace
+        namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+        
+        # Find all sitemap locations
+        sitemaps = tree.findall('.//ns:sitemap/ns:loc', namespace)
+        
+        # Log the number of sitemaps found
+        logger.info(f"Found {len(sitemaps)} subsitemaps")
+        
+        # Extract the URLs
+        urls = [loc.text for loc in sitemaps]
+        
+        # Log the first few URLs for debugging
+        if urls:
+            logger.info(f"First few subsitemap URLs: {urls[:3]}")
+        
+        return urls
     except (ET.ParseError, requests.RequestException) as e:
         logger.error(f"Error parsing main sitemap: {str(e)}")
         return []
